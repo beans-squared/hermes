@@ -1,0 +1,16 @@
+{
+  "name": "hermes",
+  "version": "1.0.0",
+  "description": "A Javascript library for interacting with the Modrinth API.",
+  "main": "index.js",
+  "scripts": {
+    "test": "node ./test/projects.js"
+  },
+  "author": "beansquared",
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^16.0.1",
+    "typescript": "^4.7.4",
+    "undici": "^5.8.0"
+  }
+}
