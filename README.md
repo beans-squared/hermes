@@ -1,5 +1,5 @@
-# ModrinthJS
-A JavaScript library for easy interaction with Modrinth's Labrinth REST API.
+# LabrinthJS
+A object-oriented javascript library for easy interaction with Modrinth's Labrinth REST API.
 
 > something interesting goes here
 
