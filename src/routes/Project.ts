@@ -6,9 +6,99 @@ import { parseForESLint } from "@typescript-eslint/parser";
 const baseUrl = config.protocol + config.hostname + config.version;
 
 /**
- * Routes related to projects on Modrinth.
+ * Projects can be mods, plugins, resource packs or modpacks and are created by users.
  */
-export default class ProjectRoutes {
+export default class Project {
+  public slug: string = "";
+  public title: string = "";
+  public description: string = "";
+  public categories: Array<string> = [];
+  public client_side: "required" | "optional" | "unsupported" = "optional";
+  public server_side: "required" | "optional" | "unsupported" = "optional";
+  public body: string = "";
+  public additional_categories: Array<string> = [];
+  public issues_url: string | null = null;
+  public source_url: string | null = null;
+  public wiki_url: string | null = null;
+  public discord_url: string | null = null;
+  public donation_urls: Array<DonationUrl> | null = null;
+  public project_type: "mod" | "modpack" | "resourcepack" = "mod";
+  public downloads: number = 0;
+  public icon_url: string | null = null;
+  public id: string = "";
+  public team: string = "";
+  public moderator_message: ModeratorMessage | null = null;
+  public published: string = "";
+  public updated: string = "";
+  public approved: string | null = null;
+  public followers: number = 0;
+  public status: "approved" | "rejected" | "draft" | "unlisted" | "archived" | "processing" | "unknown" = "unknown";
+  public license: License = { id: "MIT", name: "MIT", url: null };
+  public versions: Array<string> = [];
+  public gallery: Array<GalleryImage> | null = null;
+
+  constructor() {};
+
+  public setSlug(slug: string) {
+    this.slug = slug;
+  }
+
+  public setTitle(title: string) {
+    this.title = title;
+  }
+
+  public setDescription(description: string) {
+    this.description = description;
+  }
+
+  public setCategories(categories: Array<string>) {
+    this.categories = categories;
+  }
+
+  public setClientSide(clientSide: "required" | "optional" | "unsupported") {
+    this.client_side = clientSide;
+  }
+
+  public setServerSide(serverSide: "required" | "optional" | "unsupported") {
+    this.server_side = serverSide;
+  }
+
+  public setBody(body: string) {
+    this.body = body;
+  }
+
+  public setAdditionalCategories(additionalCategories: Array<string>) {
+    this.additional_categories = additionalCategories;
+  }
+
+  public setIssuesUrl(issuesUrl: string) {
+    this.issues_url = issuesUrl;
+  }
+
+  public setSourceUrl(sourceUrl: string) {
+    this.source_url = sourceUrl;
+  }
+
+  public setWikiUrl(wikiUrl: string) {
+    this.wiki_url = wikiUrl;
+  }
+
+  public setDiscordUrl(discordUrl: string) {
+    this.discord_url = discordUrl;
+  }
+
+  public setDonationUrls(donationUrls: Array<DonationUrl>) {
+    this.donation_urls = donationUrls;
+  }
+
+  public setLicenseById(licenseId: string) {
+
+  }
+
+  public setStatus(status: "approved" | "rejected" | "draft" | "unlisted" | "archived" | "processing" | "unknown") {
+    this.status = status;
+  }
+
   /**
    * Search for projects.
    * @param {string} query - The query to search for
@@ -22,7 +112,7 @@ export default class ProjectRoutes {
    * @see https://docs.modrinth.com/docs/tutorials/api_search
    * @see https://docs.meilisearch.com/reference/features/filtering.html
    */
-  static async search(
+  public static async search(
     query: string,
     options?: {
       facets?: string;
@@ -56,11 +146,55 @@ export default class ProjectRoutes {
   }
 
   /**
+   * Request and update the project's data.
+   */
+  public async get(): Promise<void> {
+    const route = `/project/${this.id}`;
+
+    const response = await request(baseUrl + route, {
+      method: "GET",
+      headers: {
+        "user-agent": config.userAgent,
+      },
+    });
+
+    const data = await toJson(response.body);
+
+    this.slug = data.slug;
+    this.title = data.title;
+    this.description = data.description;
+    this.categories = data.categories;
+    this.client_side = data.client_side;
+    this.server_side = data.server_side;
+    this.body = data.body;
+    this.additional_categories = data.additional_categories;
+    this.issues_url = data.issues_url;
+    this.source_url = data.source_url;
+    this.wiki_url = data.wiki_url;
+    this.discord_url = data.discord_url;
+    this.donation_urls = data.donation_urls;
+    this.project_type = data.project_type;
+    this.downloads = data.downloads;
+    this.icon_url = data.icon_url;
+    this.id = data.id;
+    this.team = data.team;
+    this.moderator_message = data.moderator_message;
+    this.published = data.published;
+    this.updated = data.updated;
+    this.approved = data.approved;
+    this.followers = data.followers;
+    this.status = data.status;
+    this.license = data.licence;
+    this.versions = data.versions;
+    this.gallery = data.gallery;
+  }
+
+  /**
    * Get a project.
    * @param {string} idOrSlug - The ID or slug of the project
    * @returns {Promise<{data: (null|any), statusCode: number}>}
    */
-  static async get(
+  public static async get(
     idOrSlug: string
   ): Promise<{ data: null | any; statusCode: number }> {
     const route = `/project/${idOrSlug}`;
@@ -78,7 +212,41 @@ export default class ProjectRoutes {
     };
   }
 
-  static async modify(
+  public async modify(authToken?: string) {
+    const route = `/project/${this.id}`;
+    const token = authToken ? authToken : config.authToken;
+
+    await request(baseUrl + route, {
+      method: "PATCH",
+      headers: {
+        authorization: token,
+        "content-type": "application/json",
+        "user-agent": config.userAgent,
+      },
+      body: JSON.stringify({
+        slug: this.slug,
+        title: this.title,
+        description: this.description,
+        categories: this.categories,
+        client_side: this.client_side,
+        server_side: this.server_side,
+        body: this.body,
+        additional_categories: this.additional_categories,
+        issues_url: this.issues_url,
+        source_url: this.source_url,
+        wiki_url: this.wiki_url,
+        discord_url: this.discord_url,
+        donation_urls: this.donation_urls,
+        license_id: this.license.id,
+        license_url: this.license.url,
+        status: this.status,
+        moderation_message: this.moderator_message?.message,
+        moderation_message_body: this.moderator_message?.body,
+      }),
+    });
+  }
+
+  public static async modify(
     idOrSlug: string,
     modifiedProjectFields: ModifiedProjectFields,
     authToken?: string
@@ -360,4 +528,23 @@ type DonationUrl = {
   id: string;
   platform: string;
   url: string;
+};
+
+type ModeratorMessage = {
+  message: string;
+  body: string | null;
+};
+
+type License = {
+  id: string;
+  name: string;
+  url: string | null;
+};
+
+type GalleryImage = {
+  url: string;
+  featured: boolean;
+  title: string | null;
+  description: string | null;
+  created: string;
 };
