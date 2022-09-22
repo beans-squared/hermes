@@ -1,12 +1,12 @@
 # Hermes
-A Javascript library for easy interaction with Modrinth's Labrinth REST API.
+A JavaScript library for easy interaction with Modrinth's Labrinth REST API.
 
 > something about hermes name
 
-Have questions about Hermes? Start a [Q&A Discussion]() or join the [Discord]().
+Have questions about Hermes? Start a [Q&A Discussion](https://github.com/big7star/hermes/discussions/new) or join the [Discord](https://discord.gg/c9SEQQ6FMS).
 
 # Install
 
 ```
-npm install hermes
+Coming soon...
 ```

@@ -1,2 +1,2 @@
-import ProjectRoutes from "./routes/ProjectRoutes";
+import ProjectRoutes from "./routes/ProjectRoutes.js";
 export { ProjectRoutes };
