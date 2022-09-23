@@ -1,4 +1,4 @@
-export default class VersionFileRoutes {
+export default class VersionFile {
   // static async getFromHash() {}
   // static async deleteFromHash() {}
   // static async latestProjectVersion() {}

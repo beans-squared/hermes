@@ -1,4 +1,4 @@
-export default class UserRoutes {
+export default class User {
   // static async get() {}
   // static async modify() {}
   // static async delete() {}

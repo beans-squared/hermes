@@ -1,6 +1,6 @@
 {
   "name": "hermes",
-  "version": "1.0.0",
+  "version": "0.0.1",
   "description": "A wrapper for easy interaction with Modrinth's Labrinth API.",
   "keywords": [
     "wrapper",
@@ -34,7 +34,7 @@
   "scripts": {
     "prettier": "prettier --write src/",
     "eslint": "eslint src/ --ext .ts",
-    "prebuild": "npm run eslint && npm run prettier",
+    "prebuild": "npm run eslint && npm run prettier && node -p \"'export const VERSION = ' + JSON.stringify(require('./package.json').version) + ';'\" > src/version.ts",
     "build": "tsc",
     "pretest": "npm run build",
     "test": "mocha test/test.js"

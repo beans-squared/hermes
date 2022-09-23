@@ -1,4 +1,4 @@
-export default class VersionRoutes {
+export default class Version {
   // static async list() {}
   // static async get() {}
   // static async modify() {}

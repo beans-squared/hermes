@@ -1,4 +1,4 @@
-export default class TeamRoutes {
+export default class Team {
   // static async getProjectMembers() {}
   // static async getMembers() {}
   // static async add() {}

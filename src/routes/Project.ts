@@ -1,7 +1,6 @@
 import { FormData, request } from "undici";
 import { config } from "../config.js";
 import toJson from "../helpers/toJson.js";
-import { parseForESLint } from "@typescript-eslint/parser";
 
 const baseUrl = config.protocol + config.hostname + config.version;
 
@@ -33,11 +32,12 @@ export default class Project {
   public approved: string | null = null;
   public followers: number = 0;
   public status: "approved" | "rejected" | "draft" | "unlisted" | "archived" | "processing" | "unknown" = "unknown";
-  public license: License = { id: "MIT", name: "MIT", url: null };
+  public license: License = { id: "", name: "", url: null };
   public versions: Array<string> = [];
   public gallery: Array<GalleryImage> | null = null;
 
-  constructor() {};
+  // eslint-disable-next-line @typescript-eslint/no-empty-function
+  constructor() {}
 
   public setSlug(slug: string) {
     this.slug = slug;
@@ -91,8 +91,8 @@ export default class Project {
     this.donation_urls = donationUrls;
   }
 
-  public setLicenseById(licenseId: string) {
-
+  public setLicense(license: License) {
+    this.license = license;
   }
 
   public setStatus(status: "approved" | "rejected" | "draft" | "unlisted" | "archived" | "processing" | "unknown") {
@@ -108,7 +108,6 @@ export default class Project {
    * @param {number} options.offset - The offset into the search. Skips this number of results
    * @param {number} options.limit - The number of results returned by the search
    * @param {string} options.filters - A list of filters relating to the properties of a project. Use filters when there isn't an available facet for your needs
-   * @returns {Promise<{data: (null|any), statusCode: number}>}
    * @see https://docs.modrinth.com/docs/tutorials/api_search
    * @see https://docs.meilisearch.com/reference/features/filtering.html
    */
@@ -121,7 +120,7 @@ export default class Project {
       limit?: number;
       filters?: string;
     }
-  ): Promise<{ data: null | any; statusCode: number }> {
+  ): Promise<ResponseData> {
     const queryParams = new URLSearchParams({ query });
     if (options?.facets) queryParams.append("facets", options.facets);
     if (options?.index) queryParams.append("index", options.index);
@@ -192,11 +191,10 @@ export default class Project {
   /**
    * Get a project.
    * @param {string} idOrSlug - The ID or slug of the project
-   * @returns {Promise<{data: (null|any), statusCode: number}>}
    */
   public static async get(
     idOrSlug: string
-  ): Promise<{ data: null | any; statusCode: number }> {
+  ): Promise<ResponseData> {
     const route = `/project/${idOrSlug}`;
 
     const response = await request(baseUrl + route, {
@@ -212,7 +210,11 @@ export default class Project {
     };
   }
 
-  public async modify(authToken?: string) {
+  /**
+   * Update project's data on Modrinth.
+   * @param authToken
+   */
+  public async modify(authToken?: string): Promise<void> {
     const route = `/project/${this.id}`;
     const token = authToken ? authToken : config.authToken;
 
@@ -246,11 +248,17 @@ export default class Project {
     });
   }
 
+  /**
+   * Modify a project.
+   * @param {string} idOrSlug - The ID or slug of the project
+   * @param {ModifiedProjectFields} modifiedProjectFields - The project's modified fields
+   * @param {string} authToken - The authorization token to use. Overrides any token defined in the config
+   */
   public static async modify(
     idOrSlug: string,
     modifiedProjectFields: ModifiedProjectFields,
     authToken?: string
-  ) {
+  ): Promise<ResponseData> {
     const route = `/project/${idOrSlug}`;
     const token = authToken ? authToken : config.authToken;
 
@@ -270,7 +278,12 @@ export default class Project {
     };
   }
 
-  static async delete(idOrSlug: string, authToken?: string) {
+  /**
+   * Delete a project.
+   * @param {string} idOrSlug - The ID or slug of the project
+   * @param {string} authToken - The authorization token to use. Overrides any token defined in the config
+   */
+  public static async delete(idOrSlug: string, authToken?: string): Promise<ResponseData> {
     const route = `/project/${idOrSlug}`;
     const token = authToken ? authToken : config.authToken;
 
@@ -288,7 +301,11 @@ export default class Project {
     };
   }
 
-  static async getMultiple(ids: Array<string>) {
+  /**
+   * Get multiple projects.
+   * @param {Array<string>} ids - The IDs of the projects
+   */
+  static async getMultiple(ids: Array<string>): Promise<ResponseData> {
     const queryParams = new URLSearchParams({ ids });
 
     const route = `/projects?${queryParams}`;
@@ -306,7 +323,12 @@ export default class Project {
     };
   }
 
-  static async create(newProject: FormData, authToken?: string) {
+  /**
+   * Create a project.
+   * @param {FormData} newProject - The new project data
+   * @param {string} authToken - The authorization token to use. Overrides any token defined in the config
+   */
+  public static async create(newProject: FormData, authToken?: string): Promise<ResponseData> {
     const route = "/project";
     const token = authToken ? authToken : config.authToken;
 
@@ -326,7 +348,11 @@ export default class Project {
     };
   }
 
-  static async validate(idOrSlug: string) {
+  /**
+   * Check if a project slug or ID exists.
+   * @param {string} idOrSlug - The ID or slug of the project
+   */
+  public static async validate(idOrSlug: string): Promise<ResponseData> {
     const route = `/project/${idOrSlug}/check`;
 
     const response = await request(baseUrl + route, {
@@ -342,7 +368,14 @@ export default class Project {
     };
   }
 
-  static async addImage(
+  /**
+   * Add an image to a project's gallery. Modrinth allows you to upload files of up to 5MiB.
+   * @param {string} idOrSlug - The ID or slug of the project
+   * @param {{ ext: "png" | "jpg" | "jpeg" | "bmp" | "gif" | "webp" | "svg" | "svgz" | "rgb", featured: boolean, title?: string, description?: string }} imageData - The image metadata
+   * @param {string} image - The binary of the image
+   * @param {string} authToken - The authorization token to use. Overrides any token defined in the config
+   */
+  public static async addImage(
     idOrSlug: string,
     imageData: {
       ext:
@@ -361,7 +394,7 @@ export default class Project {
     },
     image: string,
     authToken?: string
-  ) {
+  ): Promise<ResponseData> {
     const queryParams = new URLSearchParams();
     queryParams.append("ext", imageData.ext);
     queryParams.append("featured", imageData.featured.toString());
@@ -388,7 +421,13 @@ export default class Project {
     };
   }
 
-  static async modifyImage(
+  /**
+   * Modify a gallery image.
+   * @param {string} idOrSlug - The ID or slug of the project
+   * @param imageData - The metadata of the image
+   * @param {string} authToken - The authorization token to use. Overrides any token defined in the config
+   */
+  public static async modifyImage(
     idOrSlug: string,
     imageData: {
       url: string;
@@ -397,7 +436,7 @@ export default class Project {
       description?: string;
     },
     authToken?: string
-  ) {
+  ): Promise<ResponseData> {
     const queryParams = new URLSearchParams();
     queryParams.append("url", imageData.url);
     queryParams.append("featured", imageData.featured.toString());
@@ -422,7 +461,13 @@ export default class Project {
     };
   }
 
-  static async deleteImage(idOrSlug: string, url: string, authToken?: string) {
+  /**
+   * Delete a gallery image
+   * @param {string} idOrSlug - The ID or slug of the project
+   * @param {string} url - URL link of the image to delete
+   * @param {string} authToken - The authorization token to use. Overrides any token defined in the config
+   */
+  public static async deleteImage(idOrSlug: string, url: string, authToken?: string): Promise<ResponseData> {
     const queryParams = new URLSearchParams();
     queryParams.append("url", url);
 
@@ -443,7 +488,11 @@ export default class Project {
     };
   }
 
-  static async getDependencies(idOrSlug: string) {
+  /**
+   * Get all of a project's dependencies.
+   * @param {string} idOrSlug - The ID or slug of the project
+   */
+  public static async getDependencies(idOrSlug: string): Promise<ResponseData> {
     const route = `/project/${idOrSlug}/dependencies`;
 
     const response = await request(baseUrl + route, {
@@ -459,7 +508,12 @@ export default class Project {
     };
   }
 
-  static async follow(idOrSlug: string, authToken?: string) {
+  /**
+   * Follow a project.
+   * @param {string} idOrSlug - The ID or slug of the project
+   * @param {string} authToken - The authorization token to use. Overrides any token defined in the config
+   */
+  public static async follow(idOrSlug: string, authToken?: string): Promise<ResponseData> {
     const route = `/project/${idOrSlug}/follow`;
     const token = authToken ? authToken : config.authToken;
 
@@ -477,7 +531,12 @@ export default class Project {
     };
   }
 
-  static async unfollow(idOrSlug: string, authToken?: string) {
+  /**
+   * Unfollow a project.
+   * @param {string} idOrSlug - The ID or slug of the project
+   * @param {string} authToken - The authorization token to use. Overrides any token defined in the config
+   */
+  public static async unfollow(idOrSlug: string, authToken?: string): Promise<ResponseData> {
     const route = `/project/${idOrSlug}/follow`;
     const token = authToken ? authToken : config.authToken;
 
@@ -494,6 +553,11 @@ export default class Project {
       statusCode: response.statusCode,
     };
   }
+}
+
+type ResponseData = {
+  data: any | null,
+  statusCode: number,
 }
 
 type ModifiedProjectFields = {
