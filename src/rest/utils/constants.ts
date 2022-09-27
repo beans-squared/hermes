@@ -17,3 +17,13 @@ export const DefaultRestOptions: Required<RESTOptions> = {
     userAgent: `labrinthjs/${VERSION}`,
     version: '2',
 }
+
+/**
+ * The events that the REST manager emits
+ */
+export const enum RESTEvents {
+    Debug = 'restDebug',
+    InvalidRequestWarning = 'invalidRequestWarning',
+    RateLimited = 'rateLimited',
+    Response = 'response',
+}

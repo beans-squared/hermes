@@ -8,6 +8,8 @@ import {
     type RequestData,
     type RouteLike
 } from './RequestManager.js';
+import type { IHandler } from './handlers/IHandler.js';
+import { DefaultRestOptions, RESTEvents } from './utils/constants.js';
 import { parseResponse } from './utils/utils.js';
 
 /**
@@ -28,7 +30,7 @@ export interface RESTOptions{
      */
     headers: Record<string, string>;
     /**
-     * The number of invalid REST requests (those that return 401, 403, or 429) in a 10 minute window between emitted warnings (0 for no warnings).
+     * The number of invalid REST requests (those that return 401, 403, or 429) in a 10-minute window between emitted warnings (0 for no warnings).
      * That is, if set to 500, warnings will be emitted at invalid request number 500, 1000, 1500, and so on.
      * @default 0
      */
@@ -43,10 +45,12 @@ export interface RESTOptions{
      * When an array of strings, each element is treated as a prefix for the request route.
      * (e.g. '/project' to match any route starting with '/project' such as '/project/${id|slug}/gallery'
      * for which to throw {@link RateLimitError}s. All other request routes will be queued normally.
+     * @default null
      */
     rejectOnRateLimit: RateLimitQueueFilter | string[] | null;
     /**
      * How many requests to allow sending per second
+     * @default 50
      */
     requestsPerSecond: number;
     /**
@@ -56,7 +60,7 @@ export interface RESTOptions{
     retries: number;
     /**
      * The time to wait in milliseconds before a request is aborted
-     * @default 30_000
+     * @default 15_000
      */
     timeout: number;
     /**
@@ -79,12 +83,6 @@ export interface RateLimitData {
      * The amount of requests we can perform before locking requests
      */
     limit: number;
-    /**
-     * The major parameter for this route.
-     * For example, in '/project/x', this will be 'x'.
-     * If there is no major parameter (e.g. '/tag/category') this will be 'global'.
-     */
-    majorParameter: string;
     /**
      * The HTTP method being performed
      */
@@ -130,7 +128,7 @@ export interface APIRequest {
      */
     retries: number;
     /**
-     * The API route identifying the ratelimit for this request
+     * The API route identifying the rate limit for this request
      */
     route: string;
 }

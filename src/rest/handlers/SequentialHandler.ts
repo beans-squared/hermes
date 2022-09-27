@@ -1,9 +1,14 @@
+import { setTimeout as sleep } from 'node:timers/promises';
 import { AsyncQueue } from '@sapphire/async-queue';
+import { request, type Dispatcher } from 'undici';
+import { RateLimitData, RequestOptions } from '../REST.js';
+import { HandlerRequestData, RequestManager, RouteData } from '../RequestManager.js';
+import { ModrinthAPIError, type ModrinthErrorData, type OAuthErrorData } from '../errors/ModrinthAPIError.js';
+import { HTTPError } from '../errors/HTTPError.js';
+import { RateLimitError } from '../errors/RateLimitError.js';
+import { RESTEvents } from '../utils/constants.js';
+import { parseHeader, parseResponse } from '../utils/utils.js';
 import { IHandler } from './IHandler.js';
-import {HandlerRequestData, RequestManager, RouteData} from "../RequestManager.js";
-import {RateLimitData} from "../REST.js";
-import {Dispatcher} from "undici";
-import {parseHeader, parseResponse} from "../utils/utils.js";
 
 /**
  * Invalid request limiting is done on a per-IP basis, not a per-token basis.
@@ -13,18 +18,10 @@ import {parseHeader, parseResponse} from "../utils/utils.js";
 let invalidCount = 0;
 let invalidCountResetTime: number | null = null;
 
-const enum QueueType {
-    Standard,
-}
-
 /**
  * The structure used to handle requests for a given bucket
  */
 export class SequentialHandler implements IHandler {
-    /**
-     * {@inheritDoc IHandler.id}
-     */
-    public readonly id: string;
     /**
      * The time this rate limit bucket will reset
      */
@@ -44,14 +41,10 @@ export class SequentialHandler implements IHandler {
 
     /**
      * @param manager - The request manager
-     * @param majorParameter - The major parameter for this handler
      */
     public constructor(
         private readonly manager: RequestManager,
-        private readonly majorParameter: string,
-    ) {
-        this.id = `${majorParameter}`;
-    }
+    ) {}
 
     /**
      * {@inheritDoc IHandler.inactive}
@@ -63,24 +56,10 @@ export class SequentialHandler implements IHandler {
     }
 
     /**
-     * If the rate limit bucket is currently limited by the global limit
-     */
-    private get globalLimited(): boolean {
-        return this.manager.globalRemaining <= 0 && Date.now() < this.manager.globalReset;
-    }
-
-    /**
-     * If the rate limit bucket is currently limited by its limit
-     */
-    private get localLimited(): boolean {
-        return this.remaining <= 0 && Date.now() < this.reset;
-    }
-
-    /**
-     * If this rate limit bucket is currently limited
+     * If the rate limit bucket is currently limited
      */
     private get limited(): boolean {
-        return this.globalLimited || this.localLimited;
+        return this.manager.remaining <= 0 && Date.now() < this.manager.reset;
     }
 
     /**
@@ -95,7 +74,7 @@ export class SequentialHandler implements IHandler {
      * @param message
      */
     private debug(message: string) {
-        this.manager.emit(RESTEvents.Debug, `[REST ${this.id}] ${message}`);
+        this.manager.emit(RESTEvents.Debug, `[REST] ${message}`);
     }
 
     /**
@@ -104,11 +83,11 @@ export class SequentialHandler implements IHandler {
      */
     private async globalDelayFor(time: number): Promise<void> {
         await sleep(time, undefined, { ref: false });
-        this.manager.globalDelay = null;
+        this.manager.delay = null;
     }
 
     /**
-     * Determines whether the request should be queued for whether a RateLimitError should be thrown
+     * Determines whether the request should be queued or whether a RateLimitError should be thrown
      */
     private async onRateLimit(rateLimitData: RateLimitData) {
         const { options } = this.manager;
@@ -116,8 +95,8 @@ export class SequentialHandler implements IHandler {
 
         const shouldThrow =
             typeof options.rejectOnRateLimit === 'function'
-                ? await options.rejectOnRateLimit(rateLimitData);
-                : options.rejectOnRateLimit.some((route) => rateLimitData.route.startsWith(route.toLowerCase()));
+                ? await options.rejectOnRateLimit(rateLimitData)
+                : options.rejectOnRateLimit.some((route: string) => rateLimitData.route.startsWith(route.toLowerCase()));
         if (shouldThrow) {
             throw new RateLimitError(rateLimitData);
         }
@@ -132,12 +111,10 @@ export class SequentialHandler implements IHandler {
         options: RequestOptions,
         requestData: HandlerRequestData,
     ): Promise<Dispatcher.ResponseData> {
-        let queue = this.#asyncQueue;
-        let queueType = QueueType.Standard;
+        const queue = this.#asyncQueue;
 
         // Wait for any previous requests to be completed before this one is run
         await queue.wait({ signal: requestData.signal });
-
 
         try {
             // Make the request, and return the results
@@ -168,28 +145,10 @@ export class SequentialHandler implements IHandler {
          * Potentially loop until this task can run if e.g. the global rate limit is hit twice
          */
         while (this.limited) {
-            const isGlobal = this.globalLimited;
-            let limit: number;
-            let timeout: number;
-            let delay: Promise<void>;
-
-            if (isGlobal) {
-                // Set RateLimitData based on the global limit
-                limit = this.manager.options.globalRequestsPerSecond;
-                timeout = this.manager.globalReset + this.manager.options.offset - Date.now();
-                // If this is the first task to reach the global timeout, set the global delay
-                if (!this.manager.globalDelay) {
-                    // The global delay function clears the global delay state when it is resolved
-                    this.manager.globalDelay = this.globalDelayFor(timeout);
-                }
-
-                delay = this.manager.globalDelay;
-            } else {
-                // Set RateLimitData based on the route-specific limit
-                limit = this.limit;
-                timeout = this.timeToReset;
-                delay = sleep(timeout);
-            }
+            // Set RateLimitData
+            const limit = this.limit;
+            const timeout = this.timeToReset;
+            const delay = sleep(timeout);
 
             const rateLimitData: RateLimitData = {
                 timeToReset: timeout,
@@ -197,31 +156,25 @@ export class SequentialHandler implements IHandler {
                 method: options.method ?? 'get',
                 url,
                 route: routeId.bucketRoute,
-                majorParameter: this.majorParameter,
-                global: isGlobal,
             };
             // Let library users know they have hit a rate limit
             this.manager.emit(RESTEvents.RateLimited, rateLimitData);
             // Determine whether a RateLimitError should be thrown
             await this.onRateLimit(rateLimitData);
             // When not erroring, emit debug for what is happening
-            if (isGlobal) {
-                this.debug(`Global rate limit hit, blocking all requests for ${timeout}ms`);
-            } else {
-                this.debug(`Waiting ${timeout}ms for rate limit to pass`);
-            }
+            this.debug(`Waiting ${timeout}ms for rate limit to pass`);
 
             // Wait the remaining time left before the rate limit resets
             await delay;
         }
 
         // As the request goes out, update the global usage information
-        if (!this.manager.globalReset || this.manager.globalReset < Date.now()) {
-            this.manager.globalReset = Date.now() + 1_000;
-            this.manager.globalRemaining = this.manager.options.globalRequestsPerSecond;
+        if (!this.manager.reset || this.manager.reset < Date.now()) {
+            this.manager.reset = Date.now() + 1_000;
+            this.manager.remaining = this.manager.options.requestsPerSecond;
         }
 
-        this.manager.globalRemaining--;
+        this.manager.remaining--;
 
         const method = options.method ?? 'get';
 
@@ -267,7 +220,6 @@ export class SequentialHandler implements IHandler {
         }
 
         const status = res.statusCode;
-        let retryAfter = 0;
 
         const limit = parseHeader(res.headers['x-ratelimit-limit']);
         const remaining = parseHeader(res.headers['x-ratelimit-remaining']);
@@ -279,9 +231,6 @@ export class SequentialHandler implements IHandler {
         this.remaining = remaining ? Number(remaining) : 1;
         // Update the time when this rate limit resets (reset-after is in seconds)
         this.reset = reset ? Number(reset) * 1_000 + Date.now() + this.manager.options.offset : Date.now();
-
-        // Amount of time in milliseconds until we should retry if rate limited (globally or otherwise)
-        if (retry) retryAfter = Number(retry) * 1_000 + this.manager.options.offset;
 
         // Count the invalid requests
         if (status === 401 || status === 403 || status === 429) {
@@ -297,7 +246,7 @@ export class SequentialHandler implements IHandler {
                 // Let library users know periodically about invalid requests
                 this.manager.emit(RESTEvents.InvalidRequestWarning, {
                     count: invalidCount,
-                    remainingTime: invalidCountResetTime - Date.now();
+                    remainingTime: invalidCountResetTime - Date.now(),
                 });
             }
         }
@@ -306,15 +255,9 @@ export class SequentialHandler implements IHandler {
             return res;
         } else if (status === 429) {
             // A rate limit was hit - this may happen when first rate limited
-            const isGlobal = this.globalLimited;
-            let limit: number;
-            let timeout: number;
-
-            if (isGlobal) {
-                // Set RateLimitData based on the global limit
-                limit = this.manager.options.globalRequestsPerSecond;
-                timeout = this.manager.globalReset + this.manager.options.offset - Date.now();
-            }
+            // Set RateLimitData based on the global limit
+            const limit = this.limit;
+            const timeout = this.timeToReset;
 
             await this.onRateLimit({
                 timeToReset: timeout,
@@ -322,21 +265,20 @@ export class SequentialHandler implements IHandler {
                 method,
                 url,
                 route: routeId.bucketRoute,
-                majorParameter: this.majorParameter,
-                global: isGlobal,
             });
             this.debug(
                 [
                     'Encountered unexpected 429 rate limit',
-                    `Global         : ${isGlobal.toString()}`,
                     `Method         : ${method}`,
                     `URL            : ${url}`,
                     `Bucket         : ${routeId.bucketRoute}`,
                     `Major parameter: ${routeId.majorParameter}`,
                     `Limit          : ${limit}`,
-                    `Retry after    : ${retryAfter}ms`,
                 ].join('\n'),
             );
+
+            // Since this is not a server side issue, the next request should pass, so we don't bump the retries counter
+            return this.runRequest(routeId, url, options, requestData, retries);
         } else if (status >= 500 && status < 600) {
             // Retry the specified number of times for possible server side issues
             if (retries !== this.manager.options.retries) {

@@ -58,6 +58,11 @@ export interface RequestData {
      */
     headers?: Record<string, string>;
     /**
+     * Whether to pass through the body property directly to 'fetch()'.
+     * <warn>This only applies when files are NOT present</warn>
+     */
+    passThroughBody?: boolean;
+    /**
      * Query string parameters to append to the called endpoint
      */
     query?: URLSearchParams;
@@ -151,7 +156,7 @@ export class RequestManager extends EventEmitter {
      */
     public reset = -1;
 
-    public readonly handlers = new Map<string, IHandler>();
+    public readonly handler: SequentialHandler;
 
     #token: string | null = null;
 
@@ -163,6 +168,7 @@ export class RequestManager extends EventEmitter {
         this.options.offset = Math.max(0, this.options.offset);
         this.remaining = this.options.requestsPerSecond;
         this.agent = options.agent ?? null;
+        this.handler = new SequentialHandler(this);
     }
 
     /**
@@ -188,35 +194,16 @@ export class RequestManager extends EventEmitter {
         // Generalize the endpoint to its route data
         const routeId = RequestManager.generateRouteData(request.fullRoute, request.method);
 
-        // Get the request handler for the routeId
-        const handler =
-            this.handlers.get(`${routeId}`) ??
-            this.createHandler(routeId);
-
         // Resolve the request into usable fetch options
         const { url, fetchOptions } = await this.resolveRequest(request);
 
         // Queue the request
-        return handler.queueRequest(routeId, url, fetchOptions, {
+        return this.handler.queueRequest(routeId, url, fetchOptions, {
             body: request.body,
             files: request.files,
             auth: request.auth !== false,
             signal: request.signal,
         });
-    }
-
-    /**
-     * Creates a new rate limit handler from a routeId
-     * @param routeId - The route ID
-     * @internal
-     */
-    private createHandler(routeId: string) {
-        // Create the async request queue to handle requests
-        const queue = new SequentialHandler(this, routeId);
-        // Save the queue based on its id
-        this.handlers.set(queue.id, queue);
-
-        return queue;
     }
 
     private async resolveRequest(request: InternalRequest): Promise<{ fetchOptions: RequestOptions; url: string }> {
@@ -270,7 +257,7 @@ export class RequestManager extends EventEmitter {
         finalBody = await resolveBody(finalBody);
 
         const fetchOptions: RequestOptions = {
-            headers: { ...request.headers, ...additionalHeaders, ...headers } as Record<string, string>,
+            headers: { ...request.headers, ...headers } as Record<string, string>,
             method: request.method.toUpperCase() as Dispatcher.HttpMethod,
         };
 

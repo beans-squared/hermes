@@ -4,10 +4,6 @@ import type { HandlerRequestData, RouteData } from '../RequestManager.js';
 
 export interface IHandler {
     /**
-     * The unique id of the handler
-     */
-    readonly id: string;
-    /**
      * If the bucket is currently inactive (no pending requests)
      */
     get inactive(): boolean;
