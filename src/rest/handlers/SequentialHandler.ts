@@ -327,7 +327,7 @@ export class SequentialHandler implements IHandler {
             });
             this.debug(
                 [
-                    'Encountered unexpected 429 rate limit'
+                    'Encountered unexpected 429 rate limit',
                     `Global         : ${isGlobal.toString()}`,
                     `Method         : ${method}`,
                     `URL            : ${url}`,

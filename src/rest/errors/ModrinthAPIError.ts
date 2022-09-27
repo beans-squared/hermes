@@ -71,6 +71,41 @@ export class ModrinthAPIError extends Error {
     }
 
     private static getMessage(error: ModrinthErrorData | OAuthErrorData) {
-        let flattened
+        let flattened = '';
+        if ('code' in error) {
+            if (error.errors) {
+                flattened = [...this.flattenModrinthError(error.errors)].join('\n');
+            }
+
+            return error.message && flattened ? `${error.message}\n${flattened}` : error.message || flattened || 'Unknown Error';
+        }
+
+        return error.error_description ?? 'No Description';
+    }
+
+    private static *flattenModrinthError(obj: ModrinthError, key = ''): IterableIterator<string> {
+        if (isErrorResponse(obj)) {
+            return yield `${key.length ? `${key}[${obj.code}]` : `${obj.code}`}: ${obj.message}`.trim();
+        }
+
+        for (const [otherKey, val] of Object.entries(obj)) {
+            const nextKey = otherKey.startsWith('_')
+                ? key
+                : key
+                ? Number.isNaN(Number(otherKey))
+                    ? `${key}.${otherKey}`
+                    : `${key}[${otherKey}]`
+                : otherKey;
+
+            if (typeof val === 'string') {
+                yield val;
+            } else if (isErrorGroupWrapper(val)) {
+                for (const error of val._errors) {
+                    yield* this.flattenModrinthError(error, nextKey);
+                }
+            } else {
+                yield* this.flattenModrinthError(val, nextKey);
+            }
+        }
     }
 }

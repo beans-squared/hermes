@@ -7,8 +7,13 @@ export const DefaultRestOptions: Required<RESTOptions> = {
         return getGlobalDispatcher();
     },
     api: 'https://api.modrinth.com/',
+    headers: {},
+    invalidRequestWarningInterval: 0,
+    offset: 50,
+    rejectOnRateLimit: null,
+    requestsPerSecond: 50,
     retries: 3,
-    timeout: 30_000,
-    userAgent: `big7star/labrinthjs/${VERSION}`,
+    timeout: 15_000,
+    userAgent: `labrinthjs/${VERSION}`,
     version: '2',
 }

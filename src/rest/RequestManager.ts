@@ -9,6 +9,33 @@ import { SequentialHandler } from './handlers/SequentialHandler.js';
 import { DefaultRestOptions, RESTEvents } from './utils/constants.js';
 import { resolveBody } from './utils/utils.js';
 
+/**
+ * Represents a file to be added to the request
+ */
+export interface RawFile {
+    /**
+     * Content-Type of the file
+     */
+    contentType?: string;
+    /**
+     * The actual data for the file
+     */
+    data: Buffer | boolean | number | string;
+    /**
+     * An explicit key to use for key of the formdata field for this file.
+     * When not provided, the index of the file in the files array is used in the form 'files[${index}]'.
+     * If you wish to alter the placeholder snowflake, you must provide this property in the same form ('files[${placeholder}]')
+     */
+    key?: string;
+    /**
+     * The name of the file
+     */
+    name: string;
+}
+
+/**
+ * Represents possible data to be given to an endpoint
+ */
 export interface RequestData {
     /**
      * If this request requires the 'Authorization' header
@@ -23,6 +50,10 @@ export interface RequestData {
      */
     dispatcher?: Agent;
     /**
+     * Files to be attached to this request
+     */
+    files?: RawFile[] | undefined;
+    /**
      * Additional headers to add to this request
      */
     headers?: Record<string, string>;
@@ -30,6 +61,10 @@ export interface RequestData {
      * Query string parameters to append to the called endpoint
      */
     query?: URLSearchParams;
+    /**
+     * The signal to abort the queue entry or REST call, where applicable
+     */
+    signal?: AbortSignal | undefined;
     /**
      * If this request should be versioned
      * @default true
@@ -45,11 +80,14 @@ export interface RequestHeaders {
     'User-Agent': string;
 }
 
+/**
+ * Possible API methods to be used when doing requests
+ */
 export const enum RequestMethod {
-    Get = 'GET',
-    Post = 'POST',
-    Patch = 'PATCH',
     Delete = 'DELETE',
+    Get = 'GET',
+    Patch = 'PATCH',
+    Post = 'POST',
 }
 
 export type RouteLike = `/${string}`;
@@ -75,29 +113,55 @@ export interface RouteData {
     original: RouteLike;
 }
 
+export interface RequestManager {
+    emit: (<K extends keyof RestEvents>(event: K, ...args: RestEvents[K]) => boolean) &
+        (<S extends string | symbol>(events: Exclude<S, keyof RestEvents>, ...args: any[]) => boolean);
+
+    off: (<K extends keyof RestEvents>(event: K, listener: (...args: RestEvents[K]) => void) => this) &
+        (<S extends string | symbol>(event: Exclude<S, keyof RestEvents>, listener: (...args: any[]) => void) => this);
+
+    on: (<K extends keyof RestEvents>(event: K, listener: (...args: RestEvents[K]) => void) => this) &
+        (<S extends string | symbol>(event: Exclude<S, keyof RestEvents>, listener: (...args: any[]) => void) => this);
+
+    once: (<K extends keyof RestEvents>(event: K, listener: (...args: RestEvents[K]) => void) => this) &
+        (<S extends string | symbol>(event: Exclude<S, keyof RestEvents>, listener: (...args: any[]) => void) => this);
+
+    removeAllListeners: (<K extends keyof RestEvents>(event?: K) => this) &
+        (<S extends string | symbol>(event?: Exclude<S, keyof RestEvents>) => this);
+}
+
 /**
  * The class that managers handlers for all endpoints
  */
-export class RequestManager {
+export class RequestManager extends EventEmitter {
     /**
      * The {@link https://undici.nodejs.org/#/docs/api/Agent Agent} for all requests performed by this manager
      */
     public agent: Dispatcher | null = null;
     /**
-     * The promise used to wait out the global rate limit
+     * The number of requests remaining
      */
-    public globalDelay: Promise<void> | null = null;
+    public remaining: number;
     /**
-     * The timestamp at which the global bucket resets
+     * The promise used to wait out the rate limit
      */
-    public globalReset = -1;
+    public delay: Promise<void> | null = null;
+    /**
+     * The timestamp at which the rate limit resets
+     */
+    public reset = -1;
+
+    public readonly handlers = new Map<string, IHandler>();
 
     #token: string | null = null;
 
     public readonly options: RESTOptions;
 
     public constructor(options: Partial<RESTOptions>) {
+        super();
         this.options = { ...DefaultRestOptions, ...options };
+        this.options.offset = Math.max(0, this.options.offset);
+        this.remaining = this.options.requestsPerSecond;
         this.agent = options.agent ?? null;
     }
 
@@ -124,6 +188,11 @@ export class RequestManager {
         // Generalize the endpoint to its route data
         const routeId = RequestManager.generateRouteData(request.fullRoute, request.method);
 
+        // Get the request handler for the routeId
+        const handler =
+            this.handlers.get(`${routeId}`) ??
+            this.createHandler(routeId);
+
         // Resolve the request into usable fetch options
         const { url, fetchOptions } = await this.resolveRequest(request);
 
@@ -134,6 +203,20 @@ export class RequestManager {
             auth: request.auth !== false,
             signal: request.signal,
         });
+    }
+
+    /**
+     * Creates a new rate limit handler from a routeId
+     * @param routeId - The route ID
+     * @internal
+     */
+    private createHandler(routeId: string) {
+        // Create the async request queue to handle requests
+        const queue = new SequentialHandler(this, routeId);
+        // Save the queue based on its id
+        this.handlers.set(queue.id, queue);
+
+        return queue;
     }
 
     private async resolveRequest(request: InternalRequest): Promise<{ fetchOptions: RequestOptions; url: string }> {

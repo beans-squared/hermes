@@ -1,12 +1,13 @@
+import { EventEmitter } from 'node:events';
+import type { request, Dispatcher } from 'undici';
 import {
-    HandlerRequestData,
-    InternalRequest,
-    RequestData,
     RequestManager,
     RequestMethod,
-    RouteLike
+    type HandlerRequestData,
+    type InternalRequest,
+    type RequestData,
+    type RouteLike
 } from './RequestManager.js';
-import type { request, Dispatcher } from 'undici';
 import { parseResponse } from './utils/utils.js';
 
 /**
@@ -21,10 +22,6 @@ export interface RESTOptions{
      * @default https://api.modrinth.com/
      */
     api: string;
-    /**
-     * How many requests to allow sending per second
-     */
-    globalRequestsPerSecond: number;
     /**
      * Additional headers to send for all API requests
      * @default {}
@@ -49,6 +46,10 @@ export interface RESTOptions{
      */
     rejectOnRateLimit: RateLimitQueueFilter | string[] | null;
     /**
+     * How many requests to allow sending per second
+     */
+    requestsPerSecond: number;
+    /**
      * The number of retries for 5xx error codes returned, or requests that timeout
      * @default 3
      */
@@ -60,7 +61,7 @@ export interface RESTOptions{
     timeout: number;
     /**
      * The user agent to use for all requests
-     * @default big7star/labrinthjs/${VERSION}
+     * @default labrinthjs/${VERSION}
      */
     userAgent: string,
     /**
@@ -154,13 +155,41 @@ export interface RestEvents {
     restDebug: [info: string];
 }
 
+export interface REST {
+    emit: (<K extends keyof RestEvents>(event: K, ...args: RestEvents[K]) => boolean) &
+        (<S extends string | symbol>(event: Exclude<S, keyof RestEvents>, ...args: any[]) => boolean);
+
+    off: (<K extends keyof RestEvents>(event: K, listener: (...args: RestEvents[K]) => void) => this) &
+        (<S extends string | symbol>(event: Exclude<S, keyof RestEvents>, listener: (...args: any[]) => void) => this);
+
+    on: (<K extends keyof RestEvents>(event: K, listener: (...args: RestEvents[K]) => void) => this) &
+        (<S extends string | symbol>(event: Exclude<S, keyof RestEvents>, listener: (...args: any[]) => void) => this);
+
+    once: (<K extends keyof RestEvents>(event: K, listener: (...args: RestEvents[K]) => void) => this) &
+        (<S extends string | symbol>(event: Exclude<S, keyof RestEvents>, listener: (...args: any[]) => void) => this);
+
+    removeAllListeners: (<K extends keyof RestEvents>(event?: K) => this) &
+        (<S extends string | symbol>(event?: Exclude<S, keyof RestEvents>) => this);
+}
+
 export type RequestOptions = Exclude<Parameters<typeof request>[1], undefined>;
 
-export class REST {
+export class REST extends EventEmitter {
     public readonly requestManager: RequestManager;
 
     public constructor(options: Partial<RESTOptions> = {}) {
-        this.requestManager = new RequestManager(options);
+        super();
+        this.requestManager = new RequestManager(options)
+            .on(RESTEvents.Debug, this.emit.bind(this, RESTEvents.Debug))
+            .on(RESTEvents.RateLimited, this.emit.bind(this, RESTEvents.RateLimited))
+            .on(RESTEvents.InvalidRequestWarning, this.emit.bind(this, RESTEvents.InvalidRequestWarning));
+
+        this.on('newListener', (name, listener) => {
+           if (name === RESTEvents.Response) this.requestManager.on(name, listener);
+        });
+        this.on('removeListener', (name, listener) => {
+           if (name === RESTEvents.Response) this.requestManager.off(name, listener);
+        });
     }
 
     /**
